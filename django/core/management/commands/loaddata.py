@@ -31,6 +31,23 @@ class Command(BaseCommand):
             default=DEFAULT_DB_ALIAS, help='Nominates a specific database to load '
                 'fixtures into. Defaults to the "default" database.'),
     )
+    
+    _app_fixtures = None
+    
+    def _get_app_fixtures(self):
+        if self._app_fixtures is None:
+            app_module_paths = []
+            for app in get_apps():
+                if hasattr(app, '__path__'):
+                    # It's a 'models/' subpackage
+                    for path in app.__path__:
+                        app_module_paths.append(path)
+                else:
+                    # It's a models.py module
+                    app_module_paths.append(app.__file__)
+
+            self._app_fixtures = [os.path.join(os.path.dirname(path), 'fixtures') for path in app_module_paths]
+        return self._app_fixtures
 
     def handle(self, *fixture_labels, **options):
         using = options.get('database', DEFAULT_DB_ALIAS)
@@ -85,17 +102,6 @@ class Command(BaseCommand):
         if has_bz2:
             compression_types['bz2'] = bz2.BZ2File
 
-        app_module_paths = []
-        for app in get_apps():
-            if hasattr(app, '__path__'):
-                # It's a 'models/' subpackage
-                for path in app.__path__:
-                    app_module_paths.append(path)
-            else:
-                # It's a models.py module
-                app_module_paths.append(app.__file__)
-
-        app_fixtures = [os.path.join(os.path.dirname(path), 'fixtures') for path in app_module_paths]
         for fixture_label in fixture_labels:
             parts = fixture_label.split('.')
 
@@ -130,7 +136,7 @@ class Command(BaseCommand):
             if os.path.isabs(fixture_name):
                 fixture_dirs = [fixture_name]
             else:
-                fixture_dirs = app_fixtures + list(settings.FIXTURE_DIRS) + ['']
+                fixture_dirs = self._get_app_fixtures() + list(settings.FIXTURE_DIRS) + ['']
 
             for fixture_dir in fixture_dirs:
                 if verbosity >= 2:
@@ -216,7 +222,7 @@ class Command(BaseCommand):
                                     transaction.leave_transaction_management(using=using)
                                 return
 
-                    except Exception, e:
+                    except Exception:
                         if verbosity >= 2:
                             self.stdout.write("No %s fixture '%s' in %s.\n" % \
                                 (format, fixture_name, humanize(fixture_dir)))
